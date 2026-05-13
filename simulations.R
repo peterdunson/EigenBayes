@@ -106,12 +106,16 @@ barigozzi_cho_est <- function(Y, k, c_w=1.1){
   s_Y <- svd(Y_hat, nu=k, nv=k)
   M_hat <- s_Y$u[,1:k, drop=F] * sqrt(n)
   Lambda_hat <- s_Y$v[,1:k, drop=F] %*% diag(as.vector(s_Y$d[1:k, drop=F])) / sqrt(n)
-  sigmas_hat <- colSums( (Y - tcrossprod(M_hat, Lambda_hat))^2) / (n - k)
+  sigmas_hat_2 <- colSums( (Y - tcrossprod(M_hat, Lambda_hat))^2) / (n - k)
+  sigmas_hat <- colSums( (Y - tcrossprod(M_hat, Lambda_hat))^2) / n
+  
   return(list(
     Y_hat = Y_hat,
     M_hat = M_hat,
     Lambda_hat = Lambda_hat,
-    sigmas_sq_hat = sigmas_hat
+    sigmas_sq_hat = sigmas_hat,
+    sigmas_sq_hat_2 = sigmas_hat_2
+    
   ))
 }
 
@@ -291,10 +295,12 @@ spectral_est <- function(Y, s_Y, k){
   U <- s_Y$u[,1:k, drop=F]
   V <- s_Y$v[,1:k, drop=F]
   D <- diag(as.vector(s_Y$d[1:k, drop=F]))
-  sigmas_sq <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  (n - k)
+  sigmas_sq_2 <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  (n - k)
+  sigmas_sq <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  n
   Lambda_hat <-  V %*% D / sqrt(n)
   return(list(Lambda_hat = Lambda_hat, 
              sigmas_sq_hat = sigmas_sq,
+             sigmas_sq_hat_2 = sigmas_sq_2,
               Y_hat = U %*% D %*% t(V)))
 }
 

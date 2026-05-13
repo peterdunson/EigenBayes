@@ -1,5 +1,26 @@
-genedata=readRDS('C:/Users/mauri/Desktop/projects/fable_extensions/BLAST/application/data/genedata.rds')
-# post processing from https://github.com/noirritchandra/SUFA/blob/main/vignettes/Genedata_application.R
+#genedata=readRDS('../BLAST/application/data/genedata.rds')
+
+download_genedata=function(){
+  library(httr)
+  url <- "https://utdallas.box.com/shared/static/tuqwc8i0mzixs83wkvtla7qx0sg34365.rda"
+  temp <- tempfile(fileext = ".rda")
+  
+  # Download the file to a temporary location
+  httr::GET(url, write_disk(temp, overwrite = TRUE))
+  
+  # Load the file from the temporary location
+  load(temp)
+  
+  # Clean up the temporary file
+  unlink(temp)
+  
+  return(genedata)
+}
+
+
+
+genedata=download_genedata()
+
 set.seed(123)
 
 library(Biobase)
