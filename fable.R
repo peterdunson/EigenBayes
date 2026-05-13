@@ -5,24 +5,61 @@ library(FABLE)
 # to implement the FABLE methodology from
 # Shounak Chattopadhyay, Anru R. Zhang, and David B. Dunson, (2024) 
 # "Blessing of dimension in Bayesian inference on covariance matrices"
-# arXiv preprint arXiv:2404.03805
+# arXiv precmprint arXiv:2404.03805
 
 
 construct_fable_cov_samples <- function(FABLESamples, idx=NULL){
   n_MC <- nrow(FABLESamples$CCFABLESamples$LambdaSamples)
   k <- FABLESamples$estRank
+  
+  
+  p_long <- nrow(matrix(FABLESamples$CCFABLESamples$LambdaSamples[1,], ncol = k, byrow=T))
+  lr_samples <- array(NA, dim=c(n_MC, p_long, p_long))
+  
   p <- length(idx)
   cov_samples <- array(NA, dim=c(n_MC, p, p))
+  
   for(t in 1:n_MC){
-    Lambda_t <- (matrix(FABLESamples$CCFABLESamples$LambdaSamples[t,], ncol = k, byrow=T))[idx,]
-    cov_samples[t,,] <- tcrossprod(Lambda_t) +
+    Lambda_t <- (matrix(FABLESamples$CCFABLESamples$LambdaSamples[t,], ncol = k, byrow=T))
+    lr_samples[t,,] <- tcrossprod(Lambda_t)
+    
+    cov_samples[t,,] <- lr_samples[t,idx,idx]  +
       diag(FABLESamples$CCFABLESamples$SigmaSqSamples[t,idx])
   }
   cov_mean <- apply(cov_samples, c(2,3), mean)
+  Lambda_outer_mean <- apply(lr_samples, c(2,3), mean)
   
-  return(list(cov_mean=cov_mean, cov_samples=cov_samples))
+  return(list(cov_mean=cov_mean, cov_samples=cov_samples, Lambda_outer_mean=Lambda_outer_mean))
   
 }
+
+
+fable_low_rank_signal <- function(Y, FABLESamples){
+  n_MC <- nrow(FABLESamples$CCFABLESamples$LambdaSamples)
+  k <- FABLESamples$estRank
+  p <- ncol(Y)
+  n <- nrow(Y)
+  
+  lr_signal <- matrix(0, n, p)
+  
+  for(t in 1:n_MC){
+    Lambda_t <- (matrix(FABLESamples$CCFABLESamples$LambdaSamples[t,], ncol = k, byrow=T))
+    Sigma_t <- FABLESamples$CCFABLESamples$SigmaSqSamples[t,]
+    var_t <- solve(t(Lambda_t) %*% diag(1/Sigma_t) %*% Lambda_t)
+    factors_mean <- latent_factors_full_conditional_mean(
+      Y, Lambda_t, Sigma_t, var_t
+    )
+    lr_signal <- lr_signal + factors_mean %*% t(Lambda_t)
+  }
+  lr_signal <- lr_signal / n_MC
+  return(lr_signal)
+  
+}
+
+
+
+
+
 
 fable_monte_carlo_ci <- function(fable_cov_samples, alpha=0.05){
   idx <- upper.tri(fable_cov_samples$cov_mean, diag=T)

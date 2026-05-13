@@ -97,9 +97,9 @@ barigozzi_cho_est <- function(Y, k, c_w=1.1){
   s_Y <- svd(Y, nu=k, nv=k)
   V <- s_Y$v[, 1:k, drop=F]
   V_scaled <- V
-  c_w <- c_w * max(V[,1])
+  c_w <- c_w * max(abs(V[,1]))
   for(l in 1:k){
-    v_l <- max(1, 1 / c_w * max(V[,l]))
+    v_l <- max(1, 1 / c_w * max(abs(V[,l])))
     V_scaled[,l] <-  V_scaled[,l] / v_l
   }
   Y_hat <- Y %*%  tcrossprod(V_scaled)
@@ -227,14 +227,22 @@ compute_metrics_fable <- function(fit, compute_coverage=F, idx_cvg=1:100, idx_fr
 
   #res[5] <- fro_rel_err(fit$Y_hat, X)
   #res[6] <- fro_rel_err(fit$Y_hat[, idx_fr], X[, idx_fr])
-
-  
   
   if(compute_coverage){
     FABLESamples = FABLEPosteriorSampler(data$Y, gamma0 = 1, delta0sq = 1, maxProp = 0.95, MC = 1000)
     fable_cov_samples <- construct_fable_cov_samples(FABLESamples, idx_cvg)
     fable_cis <- fable_monte_carlo_ci(fable_cov_samples)
     fable_cov <- compute_coverage(Theta_0[idx_cvg,idx_cvg], fable_cis, confidence_intervals=F, subsample_index=1:length(idx_cvg))
+    
+    res[1] <- fro_rel_err(fable_cov_samples$Lambda_outer_mean, Lambda_outer_0)
+    res[2] <- fro_rel_err(fable_cov_samples$Lambda_outer_mean[idx_fr, idx_fr], Lambda_outer_0[idx_fr, idx_fr])
+    
+    Y_hat <- fable_low_rank_signal(data$Y, FABLESamples)
+    
+    
+    res[5] <- fro_rel_err(Y_hat, X)
+    res[6] <- fro_rel_err(Y_hat[, idx_fr], X[, idx_fr])
+    
     res[7] <- 0
     res[8] <- 0
     res[9] <- mean(fable_cov$coverage_credible_intervals)
@@ -266,7 +274,7 @@ rotate_est <- function(Y, k, lambda1=0.001){
   lambda0=5
   start <- list(B=startB, sigma=rep(1,k), theta=rep(0.5,k))
   rotate_fit <- FACTOR_ROTATE(
-    Y, lambda0, lambda1, start, k, epsilon, alpha,TRUE,TRUE,100,F
+    Y, lambda0, lambda1, start, k, epsilon, alpha,TRUE,TRUE,100,T, plot=F
   )
   #rotate_fit$Lambda_outer <- tcrossprod(rotate_fit$B)
   rotate_fit$Lambda_hat <- rotate_fit$B
@@ -286,8 +294,8 @@ spectral_est <- function(Y, s_Y, k){
   sigmas_sq <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  (n - k)
   Lambda_hat <-  V %*% D / sqrt(n)
   return(list(Lambda_hat = Lambda_hat, 
-             sigma_hat = sigmas_sq,
-              X = U %*% D %*% t(V)))
+             sigmas_sq_hat = sigmas_sq,
+              Y_hat = U %*% D %*% t(V)))
 }
 
 
@@ -373,7 +381,7 @@ for(sim in 1:n_sim){
   
   k_bn <- estimate_r_bn(data$Y)
   k_ah <- estimate_r_ah(data$Y)
-  k_over <- sqrt(n)
+  k_over <- floor(sqrt(n))
   
   if(test_fable){
     ptm <- proc.time() 
