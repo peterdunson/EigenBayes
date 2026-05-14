@@ -2,6 +2,8 @@
 
 source('competitors/FACTOR_ANALYSIS/FACTOR_CODE_update.R')
 source('fable.R')
+library(FABLE)
+Rcpp::sourceCpp("competitors/FABLE/src/updated-FABLE-functions.cpp")
 library(infinitefactor)
 
 
@@ -193,7 +195,7 @@ estimate_r_ah <- function(Y, rmax = NULL, center = FALSE) {
   )
 }
 
-compute_metrics <- function(est, compute_coverage=F, idx_cvg=1:100, idx_fr=1:100){
+compute_metrics <- function(est, compute_coverage_=F, idx_cvg=1:100, idx_fr=1:100){
   res <- c()
   est_cov <- tcrossprod(est$Lambda_hat)
   
@@ -206,7 +208,7 @@ compute_metrics <- function(est, compute_coverage=F, idx_cvg=1:100, idx_fr=1:100
   res[5] <- fro_rel_err(est$Y_hat, X)
   res[6] <- fro_rel_err(est$Y_hat[,idx_fr], X[,idx_fr])
   
-  if(compute_coverage){
+  if(compute_coverage_){
     eb_cis <- eigenbayes_approx_ci(est, subsample_index=idx_cvg)
     cov <- compute_coverage(Theta_0[idx_cvg,idx_cvg], eb_cis, subsample_index=1:length(idx_cvg))
     res[7] <- mean(cov$coverage_confidence_intervals)
@@ -221,7 +223,7 @@ compute_metrics <- function(est, compute_coverage=F, idx_cvg=1:100, idx_fr=1:100
   return(res)
 }
 
-compute_metrics_fable <- function(fit, compute_coverage=F, idx_cvg=1:100, idx_fr=1:100){
+compute_metrics_fable <- function(fit, compute_coverage_=F, idx_cvg=1:100, idx_fr=1:100){
   res <- c()
   #res[1] <- fro_rel_err(fit$Lambda_outer, Lambda_outer_0)
   #res[2] <- fro_rel_err(fit$Lambda_outer[idx_fr, idx_fr], Lambda_outer_0[idx_fr, idx_fr])
@@ -232,14 +234,49 @@ compute_metrics_fable <- function(fit, compute_coverage=F, idx_cvg=1:100, idx_fr
   #res[5] <- fro_rel_err(fit$Y_hat, X)
   #res[6] <- fro_rel_err(fit$Y_hat[, idx_fr], X[, idx_fr])
   
-  if(compute_coverage){
+  if(compute_coverage_){
     FABLESamples = FABLEPosteriorSampler(data$Y, gamma0 = 1, delta0sq = 1, maxProp = 0.95, MC = 1000)
-    fable_cov_samples <- construct_fable_cov_samples(FABLESamples, idx_cvg)
-    fable_cis <- fable_monte_carlo_ci(fable_cov_samples)
+    #fable_cov_samples <- construct_fable_cov_samples(FABLESamples, idx_cvg)
+    #fable_cis <- fable_monte_carlo_ci(fable_cov_samples)
+    ptm <- proc.time()
+    svdmod = svd(data$Y)
+    U_Y = svdmod$u
+    V_Y = svdmod$v
+    svalsY = svdmod$d
+    kEst = CPPRankEstimator(data$Y, U_Y, V_Y, svalsY, 50)
+    kEst
+    FABLEHypPars = FABLEHyperParameters(data$Y, U_Y, V_Y, svalsY, kEst)
+    covCorrectEntries = CPPcov_correct_matrix(FABLEHypPars$SigmaSqEstimate,
+                                              FABLEHypPars$G)
+    varInflation = mean(covCorrectEntries)^2
+    varInflation
+    CPPSamplingOutput = CPPFABLESampler(data$Y, 
+                                        1, 
+                                        1, 
+                                        1000,
+                                        U_Y,
+                                        V_Y,
+                                        svalsY,
+                                        kEst,
+                                        varInflation)
+    
+    CPPPostProcess = CCFABLEPostProcessingSubmatrix(CPPSamplingOutput,
+                                                    0.05,
+                                                    idx_cvg)
+    
+    
+    time_uq <- proc.time() - ptm; 
+    fable_cis <- list()
+    p <- ncol(data$Y)
+    fable_cis$credible_intervals <- array(NA, dim=c(2, p, p) )
+    fable_cis$credible_intervals[1,,] <- CPPPostProcess$LowerQuantileMatrix
+    fable_cis$credible_intervals[2,,] <- CPPPostProcess$UpperQuantileMatrix
+    
+    
     fable_cov <- compute_coverage(Theta_0[idx_cvg,idx_cvg], fable_cis, confidence_intervals=F, subsample_index=1:length(idx_cvg))
     
-    res[1] <- fro_rel_err(fable_cov_samples$Lambda_outer_mean, Lambda_outer_0)
-    res[2] <- fro_rel_err(fable_cov_samples$Lambda_outer_mean[idx_fr, idx_fr], Lambda_outer_0[idx_fr, idx_fr])
+    res[1] <- fro_rel_err(fit$Lambda_outer, Lambda_outer_0)
+    res[2] <- fro_rel_err(fit$Lambda_outer[idx_fr, idx_fr], Lambda_outer_0[idx_fr, idx_fr])
     
     Y_hat <- fable_low_rank_signal(data$Y, FABLESamples)
     
@@ -307,7 +344,7 @@ spectral_est <- function(Y, s_Y, k){
 
 
 n_sim <- 50
-scenario <- 1
+scenario <- 4
 if(scenario == 1 | scenario == 2 ){
   k <- 10
   p <- 1000
@@ -327,41 +364,46 @@ if(scenario == 3 | scenario == 4 ){
 
 subsample_index<- 1:100 
 
-
 bc_true_k <- data.frame()
-bc_k_bn <- data.frame()
-bc_k_ah <- data.frame()
 bc_k_jic <- data.frame()
 bc_k_jic_over <- data.frame()
 bc_k_over <- data.frame()
+bc_k_sqrt_p <- data.frame()
 
 eb_true_k <- data.frame()
-eb_k_bn <- data.frame()
-eb_k_ah <- data.frame()
 eb_k_jic <- data.frame()
 eb_k_jic_over <- data.frame()
 eb_k_over <- data.frame()
+eb_k_sqrt_p <- data.frame()
 
 rotate_true_k <- data.frame()
-rotate_k_bn <- data.frame()
-rotate_k_ah <- data.frame()
 rotate_k_jic <- data.frame()
 rotate_k_jic_over <- data.frame()
 rotate_k_over <- data.frame()
+rotate_k_sqrt_p <- data.frame()
 
 pca_true_k <- data.frame()
-pca_k_bn <- data.frame()
-pca_k_ah <- data.frame()
 pca_k_jic <- data.frame()
 pca_k_jic_over <- data.frame()
 pca_k_over <- data.frame()
+pca_k_sqrt_p <- data.frame()
 
 fable_k_hat <- data.frame()
-
 test_barigozzi_cho <- T; test_eigenbayes <- T; test_fable <- T; test_pca <- T; test_rotate <- T
 
-adapt_to_outcome <- T; sparse <- F
+adapt_to_outcome <- F; sparse <- F
 
+if(adapt_to_outcome){
+  scenario <- scenario + 4
+}
+if(sparse){
+  scenario <- scenario + 8
+}
+
+k_sqrt_p <- floor(sqrt(p))
+
+
+n_sim <- 50
 for(sim in 1:n_sim){
   set.seed(sim)
   print(sim)
@@ -391,10 +433,10 @@ for(sim in 1:n_sim){
   
   if(test_fable){
     ptm <- proc.time() 
-    fable_est <- FABLEPosteriorMean(data$Y)
+    fable_est <- FABLEPosteriorMean_2(data$Y)
     fable_time <- proc.time() - ptm
     fable_est$estRank
-    fable_k_hat <- rbind(fable_k_hat, c(compute_metrics_fable(fable_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
+    fable_k_hat <- rbind(fable_k_hat, c(compute_metrics_fable(fable_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
                                         fable_time[3], fable_est$estRank))
     fable_k_hat
     k_jic <- fable_est$estRank
@@ -408,17 +450,6 @@ for(sim in 1:n_sim){
     bc_time <- proc.time() - ptm
     bc_true_k <- rbind(bc_true_k, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k))
     bc_true_k
-    # k_hat b & n
-    ptm <- proc.time() 
-    bc_est <- barigozzi_cho_est(data$Y, k_bn$k_hat)
-    bc_time <- proc.time() - ptm
-    bc_k_bn <- rbind(bc_k_bn, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_bn$k_hat))
-    bc_k_bn
-    # k_hat a & h
-    ptm <- proc.time() 
-    bc_est <- barigozzi_cho_est(data$Y, k_ah$k_hat)
-    bc_time <- proc.time() - ptm
-    bc_k_ah <- rbind(bc_k_ah, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_ah$k_hat))
     # k_hat jic
     ptm <- proc.time() 
     bc_est <- barigozzi_cho_est(data$Y, k_jic)
@@ -426,15 +457,20 @@ for(sim in 1:n_sim){
     bc_k_jic <- rbind(bc_k_jic, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_jic))
     # k_hat jic + 5
     ptm <- proc.time() 
-    bc_est <- barigozzi_cho_est(data$Y, k_jic+5)
+    bc_est <- barigozzi_cho_est(data$Y, k_jic + 10)
     bc_time <- proc.time() - ptm
-    bc_k_jic_over <- rbind(bc_k_jic_over, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_jic +5))
+    bc_k_jic_over <- rbind(bc_k_jic_over, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_jic +10))
     # k + 5
     ptm <- proc.time() 
     bc_est <- barigozzi_cho_est(data$Y, k_over)
     bc_time <- proc.time() - ptm
     bc_k_over <- rbind(bc_k_over, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k+5))
     rm(bc_est)
+    # k sqrt p
+    ptm <- proc.time() 
+    bc_est <- barigozzi_cho_est(data$Y, k_sqrt_p)
+    bc_time <- proc.time() - ptm
+    bc_k_sqrt_p <- rbind(bc_k_sqrt_p, c(compute_metrics(bc_est, idx_cvg=idx_cvg, idx_fr=idx_fr), bc_time[3], k_sqrt_p))
     
   }
   
@@ -450,40 +486,34 @@ for(sim in 1:n_sim){
     #ptm <- proc.time() 
     eb_est <- eigenbayes_point_est(data$Y, s_Y, k)
     eb_time <- proc.time() - ptm
-    eb_true_k <- rbind(eb_true_k, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr), 
+    eb_true_k <- rbind(eb_true_k, c(compute_metrics(eb_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr), 
                                     eb_time[3], k))
     eb_true_k
-    # k_hat b & n
-    #ptm <- proc.time() 
-    eb_est <- eigenbayes_point_est(data$Y, s_Y, k_bn$k_hat)
-    #eb_time <- proc.time() - ptm
-    eb_k_bn <- rbind(eb_k_bn, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
-                                eb_time[3], k_bn$k_hat))
-    # k_hat a & h
-    #ptm <- proc.time() 
-    eb_est <- eigenbayes_point_est(data$Y, s_Y, k_ah$k_hat)
-    #eb_time <- proc.time() - ptm
-    eb_k_ah <- rbind(eb_k_ah, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
-                                eb_time[3], k_ah$k_hat))
     # k_hat jic
     #ptm <- proc.time() 
     eb_est <- eigenbayes_point_est(data$Y, s_Y, k_jic)
     #eb_time <- proc.time() - ptm
-    eb_k_jic <- rbind(eb_k_jic, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr), 
+    eb_k_jic <- rbind(eb_k_jic, c(compute_metrics(eb_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr), 
                                   eb_time[3], k_jic))
     # k_hat jic + 5
     #ptm <- proc.time() 
-    eb_est <- eigenbayes_point_est(data$Y, s_Y, k_jic+5)
+    eb_est <- eigenbayes_point_est(data$Y, s_Y, k_jic+10)
     #eb_time <- proc.time() - ptm
-    eb_k_jic_over <- rbind(eb_k_jic_over, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
-                                            eb_time[3], k_jic +5))
+    eb_k_jic_over <- rbind(eb_k_jic_over, c(compute_metrics(eb_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
+                                            eb_time[3], k_jic +10))
     # k + 5
     #ptm <- proc.time() 
     eb_est <- eigenbayes_point_est(data$Y, s_Y, k_over)
     #eb_time <- proc.time() - ptm
-    eb_k_over <- rbind(eb_k_over, c(compute_metrics(eb_est, compute_coverage=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
+    eb_k_over <- rbind(eb_k_over, c(compute_metrics(eb_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
                                     eb_time[3], k+5))
     rm(eb_est)
+    # k sqrt p
+    #ptm <- proc.time() 
+    eb_est <- eigenbayes_point_est(data$Y, s_Y, k_sqrt_p)
+    #eb_time <- proc.time() - ptm
+    eb_k_sqrt_p <- rbind(eb_k_sqrt_p, c(compute_metrics(eb_est, compute_coverage_=T, idx_cvg=idx_cvg, idx_fr=idx_fr),
+                                        eb_time[3], k_sqrt_p))
     
   }
   
@@ -493,32 +523,27 @@ for(sim in 1:n_sim){
     rot_est <- rotate_est(data$Y, k)
     rotate_time <- proc.time() - ptm
     rotate_true_k <- rbind(rotate_true_k, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rotate_time[3], k))
-    # k_hat b & n
-    ptm <- proc.time() 
-    rot_est <- rotate_est(data$Y, k_bn$k_hat)
-    rotate_time <- proc.time() - ptm
-    rotate_k_bn <- rbind(rotate_k_bn, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rotate_time[3], k_bn$k_hat))
-    # k_hat a & h
-    ptm <- proc.time() 
-    rot_est <- rotate_est(data$Y, k_ah$k_hat)
-    rotate_time <- proc.time() - ptm
-    rotate_k_ah <- rbind(rotate_k_ah, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rotate_time[3], k_ah$k_hat))
     # k_hat jic
     ptm <- proc.time() 
     rot_est <- rotate_est(data$Y, k_jic)
     rot_time <- proc.time() - ptm
     rotate_k_jic <- rbind(rotate_k_jic, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rot_time[3], k_jic))
-    # k_hat jic + 5
+    # k_hat jic + 10
     ptm <- proc.time() 
-    rot_est <- rotate_est(data$Y, k_jic+5)
+    rot_est <- rotate_est(data$Y, k_jic + 10)
     rot_time <- proc.time() - ptm
-    rotate_k_jic_over <- rbind(rotate_k_jic_over, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rot_time[3], k_jic + 5))
+    rotate_k_jic_over <- rbind(rotate_k_jic_over, c(compute_metrics(rot_est, idx_cvg=idx_cvg, idx_fr=idx_fr), rot_time[3], k_jic + 10))
     # k + 5
     ptm <- proc.time() 
     rot_est <- rotate_est(data$Y, k_over)
     rotate_time <- proc.time() - ptm
     rotate_k_over <- rbind(rotate_k_over, c(compute_metrics(rot_est,idx_cvg=idx_cvg, idx_fr=idx_fr), rotate_time[3], k+5))
     rm(rot_est)
+    # k sqrt p
+    ptm <- proc.time() 
+    rot_est <- rotate_est(data$Y, k_sqrt_p)
+    rotate_time <- proc.time() - ptm
+    rotate_k_sqrt_p <- rbind(rotate_k_sqrt_p, c(compute_metrics(rot_est,idx_cvg=idx_cvg, idx_fr=idx_fr), rotate_time[3], k_sqrt_p))
   }
   
   if(test_pca){
@@ -527,37 +552,34 @@ for(sim in 1:n_sim){
     pca_est <- spectral_est(data$Y, s_Y, k)
     pca_time <- proc.time() - ptm
     pca_true_k <- rbind(pca_true_k, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k))
-    # k_hat b & n
-    ptm <- proc.time() 
-    pca_est <- spectral_est(data$Y, s_Y, k_bn$k_hat)
-    pca_time <- proc.time() - ptm
-    pca_k_bn <- rbind(pca_k_bn, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_bn$k_hat))
-    # k_hat a & h. 
-    ptm <- proc.time() 
-    pca_est <- spectral_est(data$Y, s_Y, k_ah$k_hat)
-    pca_time <- proc.time() - ptm
-    pca_k_ah <- rbind(pca_k_ah, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_ah$k_hat))
     # k_hat jic
     ptm <- proc.time() 
     pca_est <- spectral_est(data$Y, s_Y, k_jic)
     pca_time <- proc.time() - ptm
     pca_k_jic <- rbind(pca_k_jic, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_jic))
-    # k_hat jic + 5
+    # k_hat jic + 10
     ptm <- proc.time() 
-    pca_est <- spectral_est(data$Y, s_Y, k_jic+5)
+    pca_est <- spectral_est(data$Y, s_Y, k_jic + 10)
     pca_time <- proc.time() - ptm
-    pca_k_jic_over <- rbind(pca_k_jic_over, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_jic + 5))
+    pca_k_jic_over <- rbind(pca_k_jic_over, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_jic + 10))
     # k + 5
     ptm <- proc.time() 
     pca_est <- spectral_est(data$Y, s_Y, k_over)
     pca_time <- proc.time() - ptm
     pca_k_over <- rbind(pca_k_over, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_over))
+    # k sqrt p
+    ptm <- proc.time() 
+    pca_est <- spectral_est(data$Y, s_Y, k_sqrt_p)
+    pca_time <- proc.time() - ptm
+    pca_k_sqrt_p <- rbind(pca_k_sqrt_p, c(compute_metrics(pca_est, idx_cvg=idx_cvg, idx_fr=idx_fr), pca_time[3], k_sqrt_p))
   }
   
 }
 
-names <- c('L_fr', 'C_fr', 'time', k)
 
+
+
+names <- c('L_fr', 'L_fr_sub',  'C_fr', 'C_fr_sub', 'X_fr', 'X_fr_sub', 'ci_cov', 'ci_len', 'cr_cov', 'cr_len', 'time', 'k')
 
 names(bc_true_k) <- names
 names(bc_k_bn)<- names
@@ -587,40 +609,222 @@ names(pca_k_jic)<- names
 names(pca_k_jic_over)<- names
 names(pca_k_over) <- names
 
+names(bc_k_sqrt_p)<- names
+names(eb_k_sqrt_p)<- names
+names(rotate_k_sqrt_p)<- names
+names(pca_k_sqrt_p)<- names
+
+
+
 names(fable_k_hat) <- names
 
+dir.create(file.path("simulations", scenario), recursive = TRUE, showWarnings = FALSE)
 
-colMeans(bc_true_k)
-colMeans(bc_k_bn)
-colMeans(bc_k_ah)
-colMeans(bc_k_jic)
-colMeans(bc_k_jic_over)
-colMeans(bc_k_over) 
+write.csv(bc_true_k, file.path("simulations", scenario, "bc_true_k.csv"))
+write.csv(bc_k_jic, file.path("simulations", scenario, "bc_k_jic.csv"))
+write.csv(bc_k_jic_over, file.path("simulations", scenario, "bc_k_jic_over.csv"))
+write.csv(bc_k_over, file.path("simulations", scenario, "bc_k_over.csv"))
 
-colMeans(eb_true_k) 
-colMeans(eb_k_bn) 
-colMeans(eb_k_ah) 
-colMeans(eb_k_jic)
-colMeans(eb_k_jic_over)
-colMeans(eb_k_over)
+write.csv(eb_true_k, file.path("simulations", scenario, "eb_true_k.csv"))
+write.csv(eb_k_jic, file.path("simulations", scenario, "eb_k_jic.csv"))
+write.csv(eb_k_jic_over, file.path("simulations", scenario, "eb_k_jic_over.csv"))
+write.csv(eb_k_over, file.path("simulations", scenario, "eb_k_over.csv"))
 
-colMeans(rotate_true_k) 
-colMeans(rotate_k_bn) 
-colMeans(rotate_k_ah) 
-colMeans(rotate_k_jic)
-colMeans(rotate_k_jic_over)
-colMeans(rotate_k_over) 
+write.csv(rotate_true_k, file.path("simulations", scenario, "rotate_true_k.csv"))
+write.csv(rotate_k_jic, file.path("simulations", scenario, "rotate_k_jic.csv"))
+write.csv(rotate_k_jic_over, file.path("simulations", scenario, "rotate_k_jic_over.csv"))
+write.csv(rotate_k_over, file.path("simulations", scenario, "rotate_k_over.csv"))
 
-colMeans(pca_true_k) 
-colMeans(pca_k_bn) 
-colMeans(pca_k_ah) 
-colMeans(pca_k_jic)
-colMeans(pca_k_jic_over)
-colMeans(pca_k_over) 
+write.csv(pca_true_k, file.path("simulations", scenario, "pca_true_k.csv"))
+write.csv(pca_k_jic, file.path("simulations", scenario, "pca_k_jic.csv"))
+write.csv(pca_k_jic_over, file.path("simulations", scenario, "pca_k_jic_over.csv"))
+write.csv(pca_k_over, file.path("simulations", scenario, "pca_k_over.csv"))
 
-colMeans(fable_k_hat) 
+write.csv(bc_k_sqrt_p, file.path("simulations", scenario, "bc_k_sqrt_p.csv"))
+write.csv(eb_k_sqrt_p, file.path("simulations", scenario, "eb_k_sqrt_p.csv"))
+write.csv(rotate_k_sqrt_p, file.path("simulations", scenario, "rotate_k_sqrt_p.csv"))
+write.csv(pca_k_sqrt_p, file.path("simulations", scenario, "pca_k_sqrt_p.csv"))
 
-set.seed(123)
+write.csv(fable_k_hat, file.path("simulations", scenario, "fable_k_hat.csv"))
+
+
+
+
+
+
+
+library(ggplot2)
+
+#scenario <- 1
+sc_dir <- file.path("simulations", scenario)
+
+read_one_res <- function(path){
+  tmp <- read.csv(path, check.names = FALSE)
+  vals <- tmp$C_fr
+  vals <- vals[!is.na(vals)]
+  
+  file <- tools::file_path_sans_ext(basename(path))
+  
+  method <- if(grepl("^bc_", file)) {
+    "BC"
+  } else if(grepl("^eb_", file)) {
+    "EB"
+  } else if(grepl("^rotate_", file)) {
+    "ROTATE"
+  } else if(grepl("^pca_", file)) {
+    "PCA"
+  } else if(grepl("^fable_", file)) {
+    "FABLE"
+  }
+  
+  variant <- sub("^[^_]+_", "", file)
+  variant_lab <- switch(
+    variant,
+    "true_k"     = "k",
+    "k_jic_over" = "JIC+10",
+    "k_sqrt_p"   = "sqrt(p)",
+    "k_hat"      = "JIC",
+    variant
+  )
+  
+  label <- if(method == "FABLE") "FABLE" else paste0(method, " (", variant_lab, ")")
+  
+  data.frame(
+    value = vals,
+    Method = method,
+    label = label
+  )
+}
+
+label_keep <- c(
+  "EB (k)", "EB (JIC+10)", "EB (sqrt(p))",
+  "BC (k)", "BC (JIC+10)", "BC (sqrt(p))",
+  "PCA (k)", "PCA (JIC+10)", "PCA (sqrt(p))",
+  "ROTATE (k)", "ROTATE (JIC+10)", "ROTATE (sqrt(p))",
+  "FABLE"
+)
+
+csv_files <- list.files(sc_dir, pattern = "\\.csv$", full.names = TRUE)
+plot_dat <- do.call(rbind, lapply(csv_files, read_one_res))
+
+plot_dat <- subset(plot_dat, label %in% label_keep)
+
+plot_dat$Method <- factor(plot_dat$Method, levels = c("EB", "BC", "PCA", "ROTATE", "FABLE"))
+plot_dat$label  <- factor(plot_dat$label, levels = label_keep[label_keep %in% unique(plot_dat$label)])
+
+p <- ggplot(plot_dat, aes(x = label, y = value, fill = Method)) +
+  geom_boxplot(outlier.size = 0.6) +
+  theme_bw() +
+  labs(x = "Method", y = "Loss") +
+  scale_x_discrete(labels = c(
+    "BC (k)" = "BC (k)",
+    "BC (JIC+10)" = "BC (JIC+10)",
+    "BC (sqrt(p))" = expression(BC~"("~sqrt(p)~")"),
+    "EB (k)" = "EB (k)",
+    "EB (JIC+10)" = "EB (JIC+10)",
+    "EB (sqrt(p))" = expression(EB~"("~sqrt(p)~")"),
+    "ROTATE (k)" = "ROTATE (k)",
+    "ROTATE (JIC+10)" = "ROTATE (JIC+10)",
+    "ROTATE (sqrt(p))" = expression(ROTATE~"("~sqrt(p)~")"),
+    "PCA (k)" = "PCA (k)",
+    "PCA (JIC+10)" = "PCA (JIC+10)",
+    "PCA (sqrt(p))" = expression(PCA~"("~sqrt(p)~")"),
+    "FABLE" = "FABLE"
+  )) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
+  )
+
+p
+ 
+
+ggsave(
+  file.path('simulations/fig/', paste0("scenario_", scenario, ".png")),
+  plot = p,
+  width = 16,
+  height = 8,
+  dpi = 300
+)
+
+read_one_res <- function(path){
+  tmp <- read.csv(path, check.names = FALSE)
+  vals <- tmp[[ncol(tmp)]]
+  vals <- vals[!is.na(vals)]
+  
+  file <- tools::file_path_sans_ext(basename(path))
+  
+  method <- if(grepl("^bc_", file)) {
+    "BC"
+  } else if(grepl("^eb_", file)) {
+    "EB"
+  } else if(grepl("^rotate_", file)) {
+    "ROTATE"
+  } else if(grepl("^pca_", file)) {
+    "PCA"
+  } else if(grepl("^fable_", file)) {
+    "FABLE"
+  }
+  
+  variant <- sub("^[^_]+_", "", file)
+  variant_lab <- switch(
+    variant,
+    "true_k"     = "k",
+    "k_jic_over" = "JIC+10",
+    "k_sqrt_p"   = "sqrt(p)",
+    "k_hat"      = "k hat",
+    variant
+  )
+  
+  label <- if(method == "FABLE") "FABLE" else paste0(method, " (", variant_lab, ")")
+  
+  data.frame(
+    value = vals,
+    Method = method,
+    label = label
+  )
+}
+
+label_keep <- c(
+  "BC (k)", "BC (JIC+10)", "BC (sqrt(p))",
+  "EB (k)", "EB (JIC+10)", "EB (sqrt(p))",
+  "ROTATE (k)", "ROTATE (JIC+10)", "ROTATE (sqrt(p))",
+  "PCA (k)", "PCA (JIC+10)", "PCA (sqrt(p))",
+  "FABLE"
+)
+
+scenario_dirs <- list.dirs("simulations", recursive = FALSE, full.names = TRUE)
+
+for(sc_dir in scenario_dirs){
+  
+  csv_files <- list.files(sc_dir, pattern = "\\.csv$", full.names = TRUE)
+  plot_dat <- do.call(rbind, lapply(csv_files, read_one_res))
+  
+  plot_dat <- subset(plot_dat, label %in% label_keep)
+  
+  plot_dat$Method <- factor(plot_dat$Method, levels = c("BC", "EB", "PCA", "ROTATE", "FABLE"))
+  plot_dat$label  <- factor(plot_dat$label, levels = label_keep[label_keep %in% unique(plot_dat$label)])
+  
+  p <- ggplot(plot_dat, aes(x = label, y = value, fill = Method)) +
+    geom_boxplot(outlier.size = 0.6) +
+    theme_bw() +
+    labs(x = "Method", y = "") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.title = element_text(size = 9),
+      legend.text = element_text(size = 8)
+    )
+  
+  ggsave(
+    file.path(sc_dir, paste0(basename(sc_dir), "_boxplot.png")),
+    plot = p,
+    width = 10,
+    height = 4.5,
+    dpi = 300
+  )
+}
+
 
 
 

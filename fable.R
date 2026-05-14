@@ -126,9 +126,9 @@ PseudoPosteriorMean_3 <- function(Y,
 
 
 FABLEPosteriorMean_2 <- function(Y,
-                               gamma0 = 1,
-                               delta0sq = 1,
-                               maxProp = 0.95) {
+                                 gamma0 = 1,
+                                 delta0sq = 1,
+                                 maxProp = 0.95) {
   
   tFABLEPostMean1 = proc.time()
   
@@ -151,98 +151,21 @@ FABLEPosteriorMean_2 <- function(Y,
   CovEst = CovEstMod$CovPostMean
   kEst = CovEstMod$kEst
   
-  # FABLEHypPars = FABLEHyperParameters(Y,
-  #                                     U_Y,
-  #                                     V_Y,
-  #                                     svalsY,
-  #                                     kEst,
-  #                                     gamma0,
-  #                                     delta0sq)
+  FABLEHypPars = FABLEHyperParameters(Y, U_Y, V_Y, svalsY, kEst)
   
-  # Part1 = FABLEHypPars$G
+  Part1 = FABLEHypPars$G
+  #print(dim(Part1))
   # Part2 = as.numeric(FABLEHypPars$gammaDeltasq / (FABLEHypPars$gamman - 2))
   # CovEst = Part1 + diag(Part2)
   
   tFABLEPostMean2 = proc.time()
   tPostMean = (tFABLEPostMean2 - tFABLEPostMean1)[3]
   
-  
-  #sigsq_hat_diag = (sum(square(Y - UDVt), 0)).t() / n; 
-  sigsq_hat_diag = colMeans((Y - tcrossprod(U_Y[,1:kEst, drop=FALSE])%*%Y)^2)
-  #tausq_est = (mean(sum(square(YtU.t()), 0).t() / sigsq_hat_diag)) / (n * k);
-  tausq_est = (mean(rowSums((crossprod(Y, U_Y[,1:kEst, drop=FALSE]))^2) / sigsq_hat_diag)) / (n * kEst);
-  M_hat = U_Y[,1:kEst, drop=FALSE] * sqrt(n)
-  Lambda_hat = V_Y[,1:kEst, drop=FALSE] %*% diag(svdY$d[1:kEst, drop=F]) * sqrt(n) / (n + 1/tausq_est)
-  print(tausq_est)
-  
-  
   OutputList = list("FABLEPostMean" = CovEst,
-                    "Lambda_outer" = tcrossprod(Lambda_hat),
+                    "Lambda_outer" = Part1,
                     "svdY" = svdY,
                     "estRank" = kEst,
-                    "runTime" = tPostMean,
-                    'Y_hat' = M_hat %*% t(Lambda_hat))
-  
-  return(OutputList)
-  
-}
-
-
-
-PseudoPosteriorSampler_2 <- function(fit,
-                                   Y,
-                                   gamma0 = 1,
-                                   delta0sq = 1,
-                                   maxProp = 0.5,
-                                   MC = 1000) {
-  
-  tFABLESample1 = proc.time()
-  
-  Y = as.matrix(Y)
-  n = nrow(Y)
-  p = ncol(Y)
-  svdY = svd(Y)
-  U_Y = svdY$u
-  V_Y = svdY$v
-  svalsY = svdY$d
-  #kMax = min(which(cumsum(svalsY) / sum(svalsY) >= maxProp))
-  kEst = fit$estRank
-  
-  FABLEHypPars = FABLEHyperParameters(Y,
-                                      U_Y,
-                                      V_Y,
-                                      svalsY,
-                                      kEst,
-                                      gamma0,
-                                      delta0sq)
-  
-  CovCorrectMatrix = cov_correct_matrix(FABLEHypPars$SigmaSqEstimate, 
-                                        FABLEHypPars$G)
-  
-  varInflation = (sum(CovCorrectMatrix) / (p*(p+1)/2))^2
-  
-  FABLESamples = FABLESampler(Y, 
-                              gamma0, 
-                              delta0sq, 
-                              MC,
-                              U_Y,
-                              V_Y,
-                              svalsY,
-                              kEst,
-                              FABLEHypPars$tauSqEstimate,
-                              FABLEHypPars$gammaDeltasq,
-                              FABLEHypPars$G0,
-                              varInflation)
-  
-  tFABLESample2 = proc.time()
-  tSample = (tFABLESample2 - tFABLESample1)[3]
-  
-  OutputList = list("CCFABLESamples" = FABLESamples,
-                    "FABLEHyperParameters" = FABLEHypPars,
-                    "svdY" = svdY,
-                    "estRank" = kEst,
-                    "varInflation" = varInflation,
-                    "runTime" = tSample)
+                    "runTime" = tPostMean)
   
   return(OutputList)
   
