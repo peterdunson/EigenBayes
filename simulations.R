@@ -344,7 +344,7 @@ spectral_est <- function(Y, s_Y, k){
 
 
 n_sim <- 50
-scenario <- 4
+scenario <- 1
 if(scenario == 1 | scenario == 2 ){
   k <- 10
   p <- 1000
@@ -391,7 +391,7 @@ pca_k_sqrt_p <- data.frame()
 fable_k_hat <- data.frame()
 test_barigozzi_cho <- T; test_eigenbayes <- T; test_fable <- T; test_pca <- T; test_rotate <- T
 
-adapt_to_outcome <- F; sparse <- F
+adapt_to_outcome <- F; sparse <- T
 
 if(adapt_to_outcome){
   scenario <- scenario + 4
@@ -712,7 +712,7 @@ plot_dat <- subset(plot_dat, label %in% label_keep)
 plot_dat$Method <- factor(plot_dat$Method, levels = c("EB", "BC", "PCA", "ROTATE", "FABLE"))
 plot_dat$label  <- factor(plot_dat$label, levels = label_keep[label_keep %in% unique(plot_dat$label)])
 
-p <- ggplot(plot_dat, aes(x = label, y = value, fill = Method)) +
+p1 <- ggplot(plot_dat, aes(x = label, y = value, fill = Method)) +
   geom_boxplot(outlier.size = 0.6) +
   theme_bw() +
   labs(x = "Method", y = "Loss") +
@@ -737,16 +737,18 @@ p <- ggplot(plot_dat, aes(x = label, y = value, fill = Method)) +
     legend.text = element_text(size = 8)
   )
 
-p
+p1
  
 
 ggsave(
   file.path('simulations/fig/', paste0("scenario_", scenario, ".png")),
-  plot = p,
+  plot = p1,
   width = 16,
   height = 8,
   dpi = 300
 )
+
+p1
 
 read_one_res <- function(path){
   tmp <- read.csv(path, check.names = FALSE)
