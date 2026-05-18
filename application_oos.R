@@ -30,7 +30,7 @@ library(ggplot2)
 
 
 array.data= genedata$array2
-Ident.array= genedata$array2.types
+#Ident.array= genedata$array2.types
 
 cutoff <- 0.50
 dat=ExpressionSet(assayData = array.data)
@@ -183,9 +183,12 @@ gaussianize_train_test <- function(Y_train, Y_test, eps = 1e-6) {
 
 
 
-res <- gaussianize_train_test(Y_train_gene, Y_test_gene)
-Y_train_gene <- res$train
-Y_test_gene  <- res$test
+res <- gaussianize_train_test(Y, Y)
+#Y_train_gene <- res$train
+#Y_test_gene  <- res$test
+Y_norm <- res$train
+Y_train_gene <- as.matrix(Y_norm[-test_gene, ])
+Y_test_gene <- as.matrix(Y_norm[test_gene, ])
 
 hist(Y_train_gene[, 2])
 hist(Y_test_gene[, 2])
@@ -214,10 +217,10 @@ rot_est_k_jic_over <- rotate_est(Y_train_gene, k_jic+10)
 #rot_est_k_over_2 <- rotate_est(Y_train_gene, k_over_2)
 
 pca_est_k_jic <- spectral_est(Y_train_gene, s_Y, k_jic)
-pca_est_k_jic_over <- spectral_est(Y_train_gene, s_Y, k_jic+5)
+pca_est_k_jic_over <- spectral_est(Y_train_gene, s_Y, k_jic+10)
 
 bc_est_k_jic <- barigozzi_cho_est(Y_train_gene, k_jic)
-bc_est_k_jic_over <- barigozzi_cho_est(Y_train_gene, k_jic+5)
+bc_est_k_jic_over <- barigozzi_cho_est(Y_train_gene, k_jic+10)
 
 
 library(emdbook)

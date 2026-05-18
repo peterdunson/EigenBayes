@@ -1,3 +1,21 @@
+
+
+
+source('eigenbayes_functions.R')
+
+
+Y_norm <- readRDS('data/Y_gene_norm.rds')
+n <- nrow(Y_norm)
+
+id = as.integer(Sys.getenv('SLURM_ARRAY_TASK_ID'))
+print(id)
+set.seed(id)
+test_gene <- sample(1:n, floor(0.2 * n))
+Y_train_gene <- as.matrix(Y_norm[-test_gene, ])
+Y_test_gene <- as.matrix(Y_norm[test_gene, ])
+
+
+
 ks <- seq(40, 160, by=20)
 
 s_Y <- svd(Y_train_gene)
@@ -80,65 +98,6 @@ oos_log_lik_res <- data.frame(
 
 oos_log_lik_res
 
-
-pval_res <- data.frame(
-  k = ks,
-  EB_vs_BC = NA,
-  EB_vs_PCA = NA,
-  EB_vs_ROTATE = NA,
-  EB_vs_FABLE = NA
-)
-
-for(k in ks){
-  
-  test.1 <- t.test(eb_log_liks[[as.character(k)]], bc_log_liks[[as.character(k)]], alternative='greater', paired=TRUE)
-  pval_res[pval_res$k == k, "EB_vs_BC"] <- test.1$p.value
-  
-  test.1 <- t.test(eb_log_liks[[as.character(k)]], pca_log_liks[[as.character(k)]], alternative='greater', paired=TRUE)
-  pval_res[pval_res$k == k, "EB_vs_PCA"] <- test.1$p.value
-  
-  test.1 <- t.test(eb_log_liks[[as.character(k)]], rot_log_liks[[as.character(k)]], alternative='greater', paired=TRUE)
-  pval_res[pval_res$k == k, "EB_vs_ROTATE"] <- test.1$p.value
-  
-  test.1 <- t.test(eb_log_liks[[as.character(k)]], fable_log_lik, alternative='greater', paired=TRUE)
-  pval_res[pval_res$k == k, "EB_vs_FABLE"] <- test.1$p.value
-  
-}
-
-pval_res
-
-library(ggplot2)
-library(tidyr)
-
-oos_log_lik_plot <- pivot_longer(
-  oos_log_lik_res,
-  cols = c("EB", "BC", "PCA", "ROTATE", "FABLE"),
-  names_to = "method",
-  values_to = "oos_log_lik"
-)
-
-ggplot(oos_log_lik_plot, aes(x=k, y=oos_log_lik, group=method, linetype=method, shape=method)) +
-  geom_line() +
-  geom_point(size=2) +
-  theme_bw() +
-  labs(x="k", y="OOS log-likelihood")
+saveRDS(oos_log_lik_res, file = paste0("results/application/", id, ".rds"))
 
 
-p_oos_log_lik <- ggplot(oos_log_lik_plot, aes(x=k, y=oos_log_lik, group=method, linetype=method, shape=method)) +
-  geom_line() +
-  geom_point(size=2) +
-  theme_bw() +
-  labs(x="k", y="OOS log-likelihood")
-
-p_oos_log_lik
-
-ggsave(
-  filename = "application/fig/oos_log_lik_vs_k_2.png",
-  plot = p_oos_log_lik,
-  width = 7,
-  height = 5,
-  dpi = 300
-)
-
-
-save.image('application/fits/oos_plot_2.RData')
