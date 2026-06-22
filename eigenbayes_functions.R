@@ -2,9 +2,15 @@ library(Rcpp)
 library(RcppArmadillo)
 sourceCpp('helper_functions_eigenbayes.cpp')
 
+
+fit_eigenbayes <- function(Y, H,v_0=5){
+  s_Y <- svd(Y)
+  res <- eigenbayes_point_est(Y, s_Y, H, v_0)
+  return(res)
+}
+
 eigenbayes_point_est <- function(
-    Y, s_Y, k, est_sigmas=T, v_0=5,  adapt_to_outcomes = T,
-    alpha=1
+    Y, s_Y, k,v_0=5,
 ){
   p <- ncol(Y)
   n <- nrow(Y)
@@ -15,33 +21,14 @@ eigenbayes_point_est <- function(
   M <- U * sqrt(n)
   d_bar_sq <- mean(s_Y$d[-c(1:k)]^2)
   d_bar_sq <- s_Y$d[k+1]^2
-  
-  #if(base_estimator_hd){ d_bar_sq <- 0}
   D <- diag(as.vector(d))
-  #D_tilde <- diag(as.vector(d)) - mean(s_Y$d[-c(1:k)])
   sigmas_sq <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  (n - k)
   sigma_sq_0 <- mean(sigmas_sq)
   signals_magnitude <- (d^2 - d_bar_sq)^alpha
   phis_sq <-(signals_magnitude) / sum(signals_magnitude)  * k
   
-  if(adapt_to_outcomes){
-    if(est_sigmas){
-      taus_sq <- diag(V %*% diag(d^2 - d_bar_sq) %*% t(V)) /
-        (n * k * sigmas_sq) 
-    } else {
-      taus_sq <- diag(V %*% diag(d^2 - d_bar_sq) %*% t(V)) /
-        (n * k *sigma_sq_0 * p) * (v_0 - 2) / v_0
-    }
-  } else {
-    taus_sq <- rep(sum(d^2 - d_bar_sq) / (n * k *sigma_sq_0 * p), p) 
-  }
-  
-  #Lambda_init <- sqrt(n) * V %*% D 
-  #Lambda_hat <- Lambda_init
-  #for(j in 1:p){
-  #  Lambda_hat[j,] <- Lambda_hat[j,] / (n + 1/taus_sq[j] * 1/phis_sq)
-  #}
-  
+  taus_sq <- diag(V %*% diag(d^2 - d_bar_sq) %*% t(V)) /
+    (n * k * sigmas_sq) 
   Lambda_hat <- compute_point_estimate_Lambda_hat(V, D, n, taus_sq, phis_sq)
   Y_hat <- tcrossprod(M, Lambda_hat)
   sigmas_sq_mean <- (v_0 *sigma_sq_0 + colSums((Y - Y_hat)^2)) / (n + v_0 -2)

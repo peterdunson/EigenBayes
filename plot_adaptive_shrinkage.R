@@ -33,8 +33,6 @@ for(t in 1:50){
   rm(eb_est, s_Y)
 }
 
-s_Y <- svd(Y)
-
 
 cols_norm_sq <- rowSums(data$Lambda^2)
 
@@ -122,8 +120,8 @@ ggplot(df_plot, aes(x = true_value, y = estimate)) +
   ) +
   labs(
     title = "",
-    x = "True squared loading norm",
-    y = "Estimated magnitude"
+    x = "True parameter value",
+    y = "Expected value a priori"
   ) +
   theme_minimal(base_size = 18) +
   theme(
