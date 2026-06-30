@@ -10,7 +10,7 @@ fit_eigenbayes <- function(Y, H,v_0=5){
 }
 
 eigenbayes_point_est <- function(
-    Y, s_Y, k,v_0=5,
+    Y, s_Y, k,v_0=5
 ){
   p <- ncol(Y)
   n <- nrow(Y)
