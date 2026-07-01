@@ -19,12 +19,11 @@ eigenbayes_point_est <- function(
   d <- s_Y$d[1:k]
   n <- nrow(Y)
   M <- U * sqrt(n)
-  d_bar_sq <- mean(s_Y$d[-c(1:k)]^2)
   d_bar_sq <- s_Y$d[k+1]^2
   D <- diag(as.vector(d))
   sigmas_sq <- colSums((Y - tcrossprod(U) %*% Y)^2 ) /  (n - k)
   sigma_sq_0 <- mean(sigmas_sq)
-  signals_magnitude <- (d^2 - d_bar_sq)^alpha
+  signals_magnitude <- (d^2 - d_bar_sq)  # matches eq. 12 exactly (alpha = 1)
   phis_sq <-(signals_magnitude) / sum(signals_magnitude)  * k
   
   taus_sq <- diag(V %*% diag(d^2 - d_bar_sq) %*% t(V)) /
@@ -59,9 +58,10 @@ eigenbayes_covariance_est <- function(
   if(is.null(eb_fit$rho_sq)){
     eb_fit <- compute_rho_sq(eb_fit, 1:p, spherical_idyosincratic_covariance=spherical_idyosincratic_covariance)
   }
+  n <- nrow(eb_fit$M_hat)
   correction <- c()
   for(j in 1:p){
-    correction[j] <- eb_fit$sigmas_sq_mean * sum(1/(n + 1/eb_fit$taus_sq[j]*1/eb_fit$phis_sq)) * eb_fit$rho_sq
+    correction[j] <- eb_fit$sigmas_sq_mean[j] * sum(1/(n + 1/eb_fit$taus_sq[j]*1/eb_fit$phis_sq)) * eb_fit$rho_sq
   }
   Lambda_outer <- Lambda_outer + diag(correction) 
   if(only_low_rank){
@@ -76,6 +76,7 @@ eigenbayes_posterior_samples <- function(
     eb_fit, n_MC=500, subsample_index=NULL, spherical_idyosincratic_covariance=T
 ){
   p <- nrow(eb_fit$Lambda_hat); k <- ncol(eb_fit$Lambda_hat)
+  n <- nrow(eb_fit$M_hat)
   if(is.null(subsample_index)){
     subsample_index <- 1:p
   }
@@ -95,7 +96,7 @@ eigenbayes_posterior_samples <- function(
   #   }
   #}
   Lambda_samples <- sample_Lambda(
-    eb_fit$Lambda_hat, subsample_index, eb_fit$taus_sq,eb_fit$eb_fit$phis_sq, 
+    eb_fit$Lambda_hat, subsample_index, eb_fit$taus_sq, eb_fit$phis_sq,
     sigmas_sq_samples, eb_fit$rho_sq, n
   )
   
@@ -190,11 +191,12 @@ compute_coverage <- function(
     subsample_index <- 1:p
   }
   
-  idx <- upper.tri(Theta_0[subsample_index, subsample_index], diag=T)
+  Theta_sub <- Theta_0[subsample_index, subsample_index]
+  idx <- upper.tri(Theta_sub, diag=T)
   res <- list()
   
   if(confidence_intervals){
-    res$coverage_confidence_intervals <- (Theta_0[idx] > (cis$confidence_intervals[1,subsample_index, subsample_index][idx])) & (Theta_0[idx] < (cis$confidence_intervals[2,subsample_index, subsample_index][idx]))
+    res$coverage_confidence_intervals <- (Theta_sub[idx] > (cis$confidence_intervals[1,subsample_index, subsample_index][idx])) & (Theta_sub[idx] < (cis$confidence_intervals[2,subsample_index, subsample_index][idx]))
     res$length_confidence_intervals <- cis$confidence_intervals[2,subsample_index, subsample_index][idx] - cis$confidence_intervals[1,subsample_index, subsample_index][idx]
     print(paste0('mean coverage conf int : ', mean(res$coverage_confidence_intervals)))
     print(paste0('mean length conf int : ', mean(res$length_confidence_intervals)))
@@ -202,7 +204,7 @@ compute_coverage <- function(
   }
   
   if(credible_intervals){
-    res$coverage_credible_intervals <- (Theta_0[idx] >  (cis$credible_intervals[1,subsample_index, subsample_index][idx])) & (Theta_0[idx] < (cis$credible_intervals[2,,][idx]))
+    res$coverage_credible_intervals <- (Theta_sub[idx] >  (cis$credible_intervals[1,subsample_index, subsample_index][idx])) & (Theta_sub[idx] < (cis$credible_intervals[2,subsample_index, subsample_index][idx]))
     res$length_credible_intervals <- cis$credible_intervals[2,subsample_index, subsample_index][idx] - cis$credible_intervals[1,subsample_index, subsample_index][idx]
     print(paste0('mean coverage cred int : ', mean(res$coverage_credible_intervals)))
     print(paste0('mean length cred int : ', mean(res$length_credible_intervals)))
@@ -224,7 +226,7 @@ latent_factor_mean_old <- function(Y, Lambda_samples, sigmas_sq_samples){
     variance_t <- t(Lambda_samples[t,,]) %*% diag(1/sigmas_sq_samples[t,]) %*% Lambda_samples[t,,] + diag(1, k, k)
     variance_t <- solve(variance_t)
     latent_factors_conditional_mean[t,,] <- latent_factors_full_conditional_mean(
-      Y, Lambda_samples[t,,], sigmas_sq[t,], variance_t
+      Y, Lambda_samples[t,,], sigmas_sq_samples[t,], variance_t
     )
   }
   return(apply(latent_factors_conditional_mean, c(2,3), mean))
@@ -237,7 +239,3 @@ latent_factor_full_conditional_old <- function(mean_lf, variance_lf){
   k <- ncol(mean_lf)
   return(rmvnorm(n, rep(0, k), variance_lf) + mean_lf)
 }
-
-
-
-

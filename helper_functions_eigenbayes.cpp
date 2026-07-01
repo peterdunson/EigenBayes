@@ -1,4 +1,3 @@
-
 // [[Rcpp::depends(RcppArmadillo)]]
 #include <RcppArmadillo.h>
 
@@ -53,13 +52,15 @@ arma::cube sample_Lambda(
   if (phis_sq.n_elem != k)
     Rcpp::stop("phis_sq must have length k.");
   
+  // subsample_index arrives 1-based from R; convert once to 0-based for Armadillo
+  arma::uvec idx0 = subsample_index - 1;
+  
   arma::cube Z(n_MC, p_index, k);
   Z.randn();
   
   arma::cube out(n_MC, p_index, k);
   
   arma::vec inv_phis = 1.0 / phis_sq;
-  arma::rowvec ones_k = arma::ones<arma::rowvec>(k);
   double sqrt_rho = std::sqrt(rho_sq);
   
   for (arma::uword t = 0; t < n_MC; ++t) {
@@ -69,13 +70,13 @@ arma::cube sample_Lambda(
     arma::mat scale(p_index, k);
     
     for (arma::uword j = 0; j < p_index; ++j) {
-      arma::uword idx = subsample_index(j)-1;
+      arma::uword idx = idx0(j);
       scale.row(j) =
         s(j) / arma::sqrt(n + (1.0 / taus_sq(idx)) * inv_phis).t();
     }
     
     out.slice(t) =
-      Lambda_hat.rows(subsample_index) + (Z.slice(t) % scale);
+      Lambda_hat.rows(idx0) + (Z.slice(t) % scale);
   }
   
   return out;
@@ -85,7 +86,7 @@ arma::cube sample_Lambda(
 // [[Rcpp::export]]
 arma::mat compute_correction_lr(
     const arma::mat& Lambda_outer, const arma::vec& sigma_sq_hat, const arma::uvec& subsample_index
-  ) {
+) {
   
   const arma::uword p = Lambda_outer.n_rows;
   if (sigma_sq_hat.n_elem != p) Rcpp::stop("sigma_sq_hat must have length p.");
@@ -129,8 +130,6 @@ arma::mat compute_correction(
     const arma::mat& Lambda_outer, const arma::vec& sigma_sq_hat, const arma::uvec& subsample_index
 ) {
   
-  const arma::uword p = Lambda_outer.n_rows;
-
   const arma::uword p_index = subsample_index.n_elem;
   arma::mat correction(p_index, p_index, arma::fill::zeros);
   
@@ -182,10 +181,9 @@ arma::mat compute_sds_clt_old(
         std::pow(Lambda_outer(j, l),2) + Lambda_outer(l, l) *  Lambda_outer(j, j));
       sds(l, j) = sds(j, l); 
     }
-    sds(j, j) = sqrt(2*Sigma_2s(j) + 2*std::pow(Lambda_outer(j, j),2) );
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Lambda_outer(j, j));
   }
-  sds(p - 1, p - 1) = sqrt(2*Sigma_2s(p-1) + 
-    2*std::pow(Lambda_outer(p-1, p-1),2));
+  sds(p - 1, p - 1) = std::sqrt(2.0) * (Sigma_2s(p-1) + Lambda_outer(p-1, p-1));
   
   return sds;
 }
@@ -194,46 +192,6 @@ arma::mat compute_sds_clt_old(
 
 // [[Rcpp::export]]
 arma::mat compute_sds_clt_lr(const arma::mat& Lambda_outer,
-                          const arma::vec& Sigma_2s) {
-  
-  const arma::uword p = Lambda_outer.n_rows;
-  if (Sigma_2s.n_elem != p) Rcpp::stop("Sigma_2s must have length p = nrow(Lambda).");
-  
-  arma::mat sds(p, p, arma::fill::zeros);
-  
-  for (arma::uword j = 0; j + 1 < p; ++j) {
-    
-    for (arma::uword l = j + 1; l < p; ++l) {
-      const double Ljj = Lambda_outer(j, j);
-      const double Lll = Lambda_outer(l, l);
-      const double Ljl = Lambda_outer(j, l);
-      
-      const double val =
-        std::sqrt(Ljj * Sigma_2s(l) +
-        Lll * Sigma_2s(j) +
-        (Ljl * Ljl) +
-        (Lll * Ljj));
-      
-      sds(j, l) = val;
-      sds(l, j) = val;
-    }
-    
-    const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0 * Sigma_2s(j) + 2.0 * (Ljj * Ljj));
-  }
-  
-  if (p > 0) {
-    const arma::uword j = p - 1;
-    const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0 * Sigma_2s(j) + 2.0 * (Ljj * Ljj));
-  }
-  
-  return sds;
-}
-
-
-// [[Rcpp::export]]
-arma::mat compute_sds_clt(const arma::mat& Lambda_outer,
                              const arma::vec& Sigma_2s) {
   
   const arma::uword p = Lambda_outer.n_rows;
@@ -259,14 +217,53 @@ arma::mat compute_sds_clt(const arma::mat& Lambda_outer,
     }
     
     const double Ljj = Lambda_outer(j, j);
-    //sds(j, j) = std::sqrt(2.0 * Sigma_2s(j) + 2.0 * (Ljj * Ljj));
-    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
   }
   
   if (p > 0) {
     const arma::uword j = p - 1;
     const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
+  }
+  
+  return sds;
+}
+
+
+// [[Rcpp::export]]
+arma::mat compute_sds_clt(const arma::mat& Lambda_outer,
+                          const arma::vec& Sigma_2s) {
+  
+  const arma::uword p = Lambda_outer.n_rows;
+  if (Sigma_2s.n_elem != p) Rcpp::stop("Sigma_2s must have length p = nrow(Lambda).");
+  
+  arma::mat sds(p, p, arma::fill::zeros);
+  
+  for (arma::uword j = 0; j + 1 < p; ++j) {
+    
+    for (arma::uword l = j + 1; l < p; ++l) {
+      const double Ljj = Lambda_outer(j, j);
+      const double Lll = Lambda_outer(l, l);
+      const double Ljl = Lambda_outer(j, l);
+      
+      const double val =
+        std::sqrt(Ljj * Sigma_2s(l) +
+        Lll * Sigma_2s(j) +
+        (Ljl * Ljl) +
+        (Lll * Ljj));
+      
+      sds(j, l) = val;
+      sds(l, j) = val;
+    }
+    
+    const double Ljj = Lambda_outer(j, j);
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
+  }
+  
+  if (p > 0) {
+    const arma::uword j = p - 1;
+    const double Ljj = Lambda_outer(j, j);
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
   }
   
   return sds;
@@ -275,7 +272,7 @@ arma::mat compute_sds_clt(const arma::mat& Lambda_outer,
 
 // [[Rcpp::export]]
 arma::mat compute_sds_clt_0(const arma::mat& Lambda_outer,
-                          const double& Sigma_2) {
+                            const double& Sigma_2) {
   
   const arma::uword p = Lambda_outer.n_rows;
   arma::mat sds(p, p, arma::fill::zeros);
@@ -298,13 +295,13 @@ arma::mat compute_sds_clt_0(const arma::mat& Lambda_outer,
     }
     
     const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0 * Sigma_2 + 2.0 * (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2 + Ljj);
   }
   
   if (p > 0) {
     const arma::uword j = p - 1;
     const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0 * Sigma_2 + 2.0 * (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2 + Ljj);
   }
   
   return sds;
@@ -313,8 +310,8 @@ arma::mat compute_sds_clt_0(const arma::mat& Lambda_outer,
 
 // [[Rcpp::export]]
 arma::mat compute_sds_bvm_lr(const arma::mat& Lambda_outer,
-                          const arma::vec& Sigma_2s,
-                          const double rho_sq = 1.0) {
+                             const arma::vec& Sigma_2s,
+                             const double rho_sq = 1.0) {
   
   const arma::uword p = Lambda_outer.n_rows;
   
@@ -508,8 +505,9 @@ Rcpp::List latent_factor_posterior_samples(
   
   for (arma::uword t = 0; t < n_MC; ++t) {
     
-    // NOTE: see section (2) below about this extraction
-    arma::mat Lambda_t = Lambda_samples.row(t); // likely NOT what you want dimension-wise
+    // Lambda_samples is (n_MC x p x k); .row(t) collapses the size-1
+    // leading dimension and yields a p x k matrix, as needed here.
+    arma::mat Lambda_t = Lambda_samples.row(t);
     
     arma::vec inv_sig = 1.0 / sigmas_sq_samples.row(t).t();
     
@@ -535,6 +533,3 @@ Rcpp::List latent_factor_posterior_samples(
     Rcpp::Named("posterior_samples") = out_samples
   );
 }
-
-
-
