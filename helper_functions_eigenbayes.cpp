@@ -260,13 +260,13 @@ arma::mat compute_sds_clt(const arma::mat& Lambda_outer,
     
     const double Ljj = Lambda_outer(j, j);
     //sds(j, j) = std::sqrt(2.0 * Sigma_2s(j) + 2.0 * (Ljj * Ljj));
-    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
   }
   
   if (p > 0) {
     const arma::uword j = p - 1;
     const double Ljj = Lambda_outer(j, j);
-    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + (Ljj * Ljj));
+    sds(j, j) = std::sqrt(2.0) * (Sigma_2s(j) + Ljj);
   }
   
   return sds;
